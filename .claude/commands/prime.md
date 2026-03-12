@@ -7,6 +7,7 @@
 ./context
 - `HISTORY.md` — Workspace changelog (what was built, when)
 - `docs/_index.md` — Documentation routing index (find relevant docs here)
+- `context/key-metrics.md` — Live business metrics (Trello pipeline, Calendly bookings, FX rates)
 
 ## Summary
 
