@@ -137,6 +137,14 @@ Use `gmail_search_messages` to find forwarded meeting notes or other emails Came
 ## Image Analysis
 When photos are sent, they're saved to data/command/photos/.
 Use the Read tool to view the image. Analyze screenshots, charts, documents, etc.
+
+## LinkedIn Content Generator
+When Cameron asks you to write a LinkedIn post, caption, or weekly update:
+- Read the full skill file at `.claude/commands/linkedin.md` for voice rules, psychological techniques, and output format
+- Always produce 2 variants (A and B) with different angles
+- Include the recommendation section
+- If Weekly mode and no week number given — ask before writing
+- Never guess Cameron's voice — study the examples in the skill file first
 """
 
 
