@@ -6,6 +6,7 @@ This is **Cameron Atwal's** AIOS workspace for **InnovaAI Integration** — a cu
 
 ## Context Summary
 
+**AI Name:** Baymax (Cameron's AI chief of staff — formerly Jarvis, now Baymax)
 **Business:** InnovaAI Integration — custom AI agents, automation, apps, websites, dashboards, and platforms. Fully custom builds for SMEs, primarily in property.
 **Role:** Cameron Atwal, Co-Founder — Sales, Marketing, Client Audits, Project Management, Operations.
 **Current focus:** Hit 4+ new clients/month and £15k/month revenue consistently. Grow LinkedIn to drive pipeline.
@@ -196,6 +197,30 @@ If yes to any, update the relevant sections. This file must always reflect the c
 5. **Execute**: Use `/implement` to execute plans
 6. **Share**: Use `/share` to package systems for team, clients, or community
 7. **Maintain**: Claude updates CLAUDE.md and context/ as the workspace evolves
+
+---
+
+## Meeting Notes (Gmail Workflow)
+
+Cameron forwards Google Gemini meeting summaries to his own email. To log them:
+1. Search Gmail: `subject:"meeting notes" OR subject:"gemini notes" from:me to:me newer_than:7d`
+2. Extract date, attendees, discussion points, action items
+3. Append to `context/current-data.md` under `## Meeting Notes`
+
+## Google Calendar Color System
+
+Cameron colours every calendar event. Use this to classify meetings/tasks:
+
+| Color     | Stream            |
+|-----------|-------------------|
+| Red       | Admin             |
+| Blueberry | Software          |
+| Basil     | Meetings          |
+| Banana    | LinkedIn/Marketing|
+| Graphite  | Centryn           |
+| Grape     | Personal          |
+
+classify.py uses `CALENDAR_COLOR_STREAM` to map Google Calendar colorId → stream automatically.
 
 ---
 

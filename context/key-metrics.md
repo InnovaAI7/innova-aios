@@ -39,5 +39,7 @@
 |--------|---------------|--------|
 | calendly_bookings | — | No date column |
 | fx_rates | 2026-03-12 | Connected |
+| meetings | — | Empty |
+| staff_registry | — | No date column |
 | trello_cards | 2026-03-12 | Connected |
 | trello_pipeline | 2026-03-12 | Connected |
