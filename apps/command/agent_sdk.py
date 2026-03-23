@@ -10,6 +10,7 @@ prime command file, then run tasks on the primed session.
 
 import logging
 import os
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,10 +86,30 @@ def create_options(
             Defaults to a generic autonomous agent prompt.
         allowed_tools: List of allowed tools. Defaults to standard set.
     """
-    # Remove CLAUDECODE from env to avoid conflicts when spawning sub-agents
-    env_clean = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    # Build env for the CLI subprocess.
+    # The SDK merges os.environ → options.env, so we must explicitly
+    # blank out vars we want removed (just excluding them isn't enough).
+    env_clean = dict(os.environ)
+    # Remove CLAUDECODE to avoid "nested session" errors.
+    env_clean.pop("CLAUDECODE", None)
+    # Blank ANTHROPIC_API_KEY so the CLI uses OAuth (subscription)
+    # instead of pay-per-use API billing which has no credits.
+    env_clean["ANTHROPIC_API_KEY"] = ""
+    # Ensure USER is set — macOS Keychain (used for OAuth tokens)
+    # requires it, and launchd doesn't provide it by default.
+    if not env_clean.get("USER"):
+        import getpass
+        env_clean["USER"] = getpass.getuser()
+
+    # Prefer the system-installed CLI over the bundled one (which may be outdated)
+    cli_path = shutil.which("claude")
+
+    def _log_stderr(line: str) -> None:
+        logger.warning("CLI stderr: %s", line)
 
     return ClaudeAgentOptions(
+        cli_path=cli_path,
+        stderr=_log_stderr,
         system_prompt={
             "type": "preset",
             "preset": "claude_code",

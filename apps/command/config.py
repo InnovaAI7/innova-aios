@@ -43,8 +43,7 @@ def load_config() -> Config:
     group_id = int(group_id_str)
 
     anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if not anthropic_api_key:
-        raise ValueError("ANTHROPIC_API_KEY is required in .env")
+    # API key is optional — if absent, the CLI uses OAuth (Claude Pro/Max subscription)
 
     openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
     # Not required — voice note transcription just won't work without it
