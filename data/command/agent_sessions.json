@@ -1,0 +1,11 @@
+{
+  "general": {
+    "session_id": "903922eb-a47c-4993-bf96-b80732af4634",
+    "model": "sonnet",
+    "created": "2026-03-23T19:26:30.774903+00:00",
+    "name": "General",
+    "total_cost": 6.2487610500000015,
+    "total_turns": 85,
+    "last_input_tokens": 3
+  }
+}
