@@ -92,9 +92,11 @@ def create_options(
     env_clean = dict(os.environ)
     # Remove CLAUDECODE to avoid "nested session" errors.
     env_clean.pop("CLAUDECODE", None)
-    # Blank ANTHROPIC_API_KEY so the CLI uses OAuth (subscription)
-    # instead of pay-per-use API billing which has no credits.
-    env_clean["ANTHROPIC_API_KEY"] = ""
+    # On local dev (macOS), blank the API key so the CLI uses OAuth
+    # (subscription). On cloud (DigitalOcean), keep the API key since
+    # there's no browser for OAuth login.
+    if not os.getenv("DIGITALOCEAN_APP"):
+        env_clean["ANTHROPIC_API_KEY"] = ""
     # Ensure USER is set — macOS Keychain (used for OAuth tokens)
     # requires it, and launchd doesn't provide it by default.
     if not env_clean.get("USER"):
