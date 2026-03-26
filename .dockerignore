@@ -1,0 +1,16 @@
+.env
+credentials/
+*.pem
+*.key
+data/*.db
+data/*.db-journal
+__pycache__/
+*.pyc
+.venv/
+venv/
+.git/
+.DS_Store
+.claude/
+plans/
+shares/
+docs/
