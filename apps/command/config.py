@@ -35,7 +35,13 @@ def load_config() -> Config:
 
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not bot_token:
-        raise ValueError("TELEGRAM_BOT_TOKEN is required in .env")
+        # Debug: show which env vars are set (names only, not values)
+        env_keys = [k for k in os.environ if "TELEGRAM" in k or "BOT" in k or "TOKEN" in k]
+        raise ValueError(
+            f"TELEGRAM_BOT_TOKEN is required. "
+            f"Env file exists: {env_path.exists()}. "
+            f"Matching env vars: {env_keys}"
+        )
 
     group_id_str = os.getenv("TELEGRAM_GROUP_ID", "").strip()
     if not group_id_str:
