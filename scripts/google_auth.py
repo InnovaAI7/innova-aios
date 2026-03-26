@@ -11,7 +11,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from pathlib import Path
 import json
 
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    "https://mail.google.com/",
+]
 ROOT = Path(__file__).resolve().parent.parent
 CLIENT_SECRET = ROOT / "credentials" / "google_client_secret.json"
 TOKEN_PATH = ROOT / "credentials" / "google_token.json"
