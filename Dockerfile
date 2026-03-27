@@ -11,6 +11,10 @@ RUN apt-get update && apt-get install -y curl && \
 # Install Claude Code CLI
 RUN npm install -g @anthropic-ai/claude-code
 
+# Ensure writable home directory for Claude CLI config/sessions
+ENV HOME=/root
+RUN mkdir -p /root/.claude/sessions
+
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

@@ -74,8 +74,11 @@ def create_options(
     max_budget_usd: float,
     system_append: str | None = None,
     allowed_tools: list[str] | None = None,
-) -> ClaudeAgentOptions:
+) -> tuple[ClaudeAgentOptions, list[str]]:
     """Create ClaudeAgentOptions with a configurable system prompt suffix.
+
+    Returns a tuple of (options, stderr_lines) — stderr_lines is a mutable
+    list that collects CLI stderr output for inclusion in error messages.
 
     Args:
         workspace_dir: Path to the workspace root.
@@ -106,10 +109,14 @@ def create_options(
     # Prefer the system-installed CLI over the bundled one (which may be outdated)
     cli_path = shutil.which("claude")
 
+    # Collect stderr lines so callers can include them in error messages
+    stderr_lines: list[str] = []
+
     def _log_stderr(line: str) -> None:
         logger.warning("CLI stderr: %s", line)
+        stderr_lines.append(line)
 
-    return ClaudeAgentOptions(
+    options = ClaudeAgentOptions(
         cli_path=cli_path,
         stderr=_log_stderr,
         system_prompt={
@@ -117,7 +124,8 @@ def create_options(
             "preset": "claude_code",
             "append": system_append or DEFAULT_SYSTEM_APPEND,
         },
-        setting_sources=["project", "user"],
+        # On cloud, skip user settings (no ~/.claude/settings.json in container)
+        setting_sources=["project"] if os.getenv("DIGITALOCEAN_APP") else ["project", "user"],
         cwd=workspace_dir,
         allowed_tools=allowed_tools or [
             "Read", "Write", "Edit", "Bash", "Glob", "Grep",
@@ -129,11 +137,13 @@ def create_options(
         model=model,
         env=env_clean,
     )
+    return options, stderr_lines
 
 
 async def _run_agent(
     prompt: str,
     options: ClaudeAgentOptions,
+    stderr_lines: list[str] | None = None,
     on_tool_use: Callable | None = None,
     session_id: str | None = None,
 ) -> WorkerResult:
@@ -147,6 +157,7 @@ async def _run_agent(
     """
     latest_text_parts: list[str] = []
     result: WorkerResult | None = None
+    _stderr = stderr_lines or []
 
     if session_id:
         options.resume = session_id
@@ -189,8 +200,12 @@ async def _run_agent(
             raise
     except Exception as e:
         logger.exception("Agent SDK error")
+        # Include stderr output for debugging CLI failures
+        stderr_detail = ""
+        if _stderr:
+            stderr_detail = "\nCLI stderr: " + " | ".join(_stderr[-5:])
         return WorkerResult(
-            result_text=f"Agent error: {e}",
+            result_text=f"Agent error: {e}{stderr_detail}",
             cost_usd=0, duration_ms=0, num_turns=0,
             session_id=None, is_error=True,
         )
@@ -198,8 +213,12 @@ async def _run_agent(
     if result:
         return result
 
+    # No ResultMessage received — include stderr for debugging
+    stderr_detail = ""
+    if _stderr:
+        stderr_detail = "\nCLI stderr: " + " | ".join(_stderr[-5:])
     return WorkerResult(
-        result_text="\n".join(latest_text_parts) or "Agent completed with no output.",
+        result_text=("\n".join(latest_text_parts) or "Agent completed with no output.") + stderr_detail,
         cost_usd=0, duration_ms=0, num_turns=0,
         session_id=None, is_error=True,
     )
@@ -223,11 +242,11 @@ async def run_prime(
     Returns a WorkerResult with session_id for resumption.
     """
     prompt = _load_prime_prompt(prime_command)
-    options = create_options(
+    options, stderr_lines = create_options(
         workspace_dir, model, max_turns, max_budget_usd,
         system_append=system_append,
     )
-    return await _run_agent(prompt, options, on_tool_use=on_tool_use)
+    return await _run_agent(prompt, options, stderr_lines=stderr_lines, on_tool_use=on_tool_use)
 
 
 async def run_task_on_session(
@@ -241,11 +260,11 @@ async def run_task_on_session(
     on_tool_use: Callable | None = None,
 ) -> WorkerResult:
     """Run a task on an existing primed session — agent retains full context."""
-    options = create_options(
+    options, stderr_lines = create_options(
         workspace_dir, model, max_turns, max_budget_usd,
         system_append=system_append,
     )
-    return await _run_agent(prompt, options, on_tool_use=on_tool_use, session_id=session_id)
+    return await _run_agent(prompt, options, stderr_lines=stderr_lines, on_tool_use=on_tool_use, session_id=session_id)
 
 
 async def run_worker(
@@ -259,9 +278,9 @@ async def run_worker(
     on_tool_use: Callable | None = None,
 ) -> WorkerResult:
     """Spawn a standalone Claude Code agent (no priming)."""
-    options = create_options(
+    options, stderr_lines = create_options(
         workspace_dir, model, max_turns, max_budget_usd,
         system_append=system_append,
         allowed_tools=allowed_tools,
     )
-    return await _run_agent(prompt, options, on_tool_use=on_tool_use)
+    return await _run_agent(prompt, options, stderr_lines=stderr_lines, on_tool_use=on_tool_use)

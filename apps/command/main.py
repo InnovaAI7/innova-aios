@@ -11,6 +11,8 @@ Simplified boot sequence:
 import asyncio
 import logging
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import NamedTuple
@@ -152,6 +154,30 @@ async def main() -> None:
         except Exception:
             boot.info("Waiting for polling lock to release... (%d/5)", attempt + 1)
             await asyncio.sleep(3)
+
+    # Verify Claude Code CLI is available and working
+    cli_path = shutil.which("claude")
+    if cli_path:
+        try:
+            result = subprocess.run(
+                [cli_path, "--version"],
+                capture_output=True, text=True, timeout=15,
+                env={**os.environ, "CLAUDECODE": ""},
+            )
+            version = result.stdout.strip() or result.stderr.strip()
+            checks.append(SystemCheck("Claude CLI", True, f"{cli_path} — {version[:40]}"))
+        except Exception as e:
+            checks.append(SystemCheck("Claude CLI", False, f"found at {cli_path} but failed: {e}"))
+    else:
+        checks.append(SystemCheck("Claude CLI", False, "not found in PATH"))
+
+    # Check API key availability on cloud
+    if os.getenv("DIGITALOCEAN_APP"):
+        has_key = bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+        checks.append(SystemCheck(
+            "API Key (cloud)", has_key,
+            "ANTHROPIC_API_KEY set" if has_key else "ANTHROPIC_API_KEY missing — CLI will fail",
+        ))
 
     # Verify Telegram connection
     try:

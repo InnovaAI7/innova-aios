@@ -290,8 +290,11 @@ class Orchestrator:
                 model=model,
             )
             if prime_result.is_error:
+                agent_log.error("Prime failed (%s): %s", topic_key, prime_result.result_text[:500])
                 await message.reply(
-                    f"Prime failed: {prime_result.result_text[:400]}"
+                    f"Prime failed: {prime_result.result_text[:400]}\n\n"
+                    "Try sending your message again. If this persists, "
+                    "the Claude CLI may not be working in the container."
                 )
                 return
 

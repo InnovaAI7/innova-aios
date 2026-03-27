@@ -10,7 +10,10 @@ __pycache__/
 venv/
 .git/
 .DS_Store
-.claude/
+# Include .claude/commands/ (needed for prime-telegram.md and other commands)
+# Exclude local settings and skills that aren't needed in container
+.claude/settings.local.json
+.claude/skills/
 plans/
 shares/
 docs/
