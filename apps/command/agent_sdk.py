@@ -97,11 +97,17 @@ def create_options(
     env_clean = dict(os.environ)
     # Remove CLAUDECODE to avoid "nested session" errors.
     env_clean.pop("CLAUDECODE", None)
-    # On local dev (macOS), blank the API key so the CLI uses OAuth
-    # (subscription). On cloud (DigitalOcean), keep the API key since
-    # there's no browser for OAuth login.
-    if not os.getenv("DIGITALOCEAN_APP"):
+    # If an API key is set, keep it (cloud / explicit key usage).
+    # If no API key, the CLI falls back to OAuth (local dev with subscription).
+    # Only blank the key on macOS local dev where we want OAuth instead.
+    import platform
+    has_api_key = bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+    is_local_mac = platform.system() == "Darwin" and not os.getenv("DIGITALOCEAN_APP")
+    if is_local_mac and not has_api_key:
         env_clean["ANTHROPIC_API_KEY"] = ""
+    elif is_local_mac and has_api_key:
+        # Local dev but API key is set — respect it (user may want key-based auth)
+        pass
     # Ensure USER is set — macOS Keychain (used for OAuth tokens)
     # requires it, and launchd doesn't provide it by default.
     if not env_clean.get("USER"):
@@ -127,7 +133,7 @@ def create_options(
             "append": system_append or DEFAULT_SYSTEM_APPEND,
         },
         # On cloud, skip user settings (no ~/.claude/settings.json in container)
-        setting_sources=["project"] if os.getenv("DIGITALOCEAN_APP") else ["project", "user"],
+        setting_sources=["project"] if not is_local_mac else ["project", "user"],
         cwd=workspace_dir,
         allowed_tools=allowed_tools or [
             "Read", "Write", "Edit", "Bash", "Glob", "Grep",
