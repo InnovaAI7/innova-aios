@@ -256,10 +256,15 @@ async def main() -> None:
             f"{_C.BRIGHT_GREEN}{_C.BOLD}Online \u2014 polling for messages{_C.RESET}"
         )
         _print_separator()
+        # Build startup message with check results for Telegram
+        lines = ["Command Bot is online."]
+        for c in checks:
+            icon = "\u2705" if c.passed else "\u274c"
+            lines.append(f"{icon} {c.name}: {c.detail}")
         try:
             await bot.send_message(
                 chat_id=config.group_id,
-                text="Command Bot is online.",
+                text="\n".join(lines),
             )
         except Exception:
             system.warning("Could not send startup message to Telegram")

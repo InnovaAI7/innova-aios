@@ -11,6 +11,7 @@ prime command file, then run tasks on the primed session.
 import logging
 import os
 import shutil
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
     query,
 )
+from claude_agent_sdk._errors import ProcessError
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +142,43 @@ def create_options(
     return options, stderr_lines
 
 
+def _diagnose_cli_failure(options: ClaudeAgentOptions) -> str:
+    """Run the CLI directly via subprocess to capture the real error.
+
+    The SDK's ProcessError hardcodes a placeholder for stderr, so we
+    bypass it and run the CLI ourselves to get the actual output.
+    """
+    cli_path = options.cli_path or shutil.which("claude")
+    if not cli_path:
+        return "claude CLI not found in PATH"
+
+    env = dict(os.environ)
+    if options.env:
+        env.update(options.env)
+    # Remove CLAUDECODE to avoid nested session errors
+    env.pop("CLAUDECODE", None)
+
+    try:
+        result = subprocess.run(
+            [cli_path, "-p", "say OK", "--max-turns", "1",
+             "--output-format", "text", "--model", "haiku"],
+            capture_output=True, text=True, timeout=30,
+            env=env, cwd=options.cwd,
+        )
+        if result.returncode == 0:
+            return f"CLI works in isolation (stdout: {result.stdout[:100]}). Issue may be with SDK options or session resume."
+        parts = []
+        if result.stdout.strip():
+            parts.append(f"stdout: {result.stdout.strip()[:200]}")
+        if result.stderr.strip():
+            parts.append(f"stderr: {result.stderr.strip()[:400]}")
+        return f"CLI also fails (exit {result.returncode}). " + " | ".join(parts)
+    except subprocess.TimeoutExpired:
+        return "CLI diagnostic timed out after 30s"
+    except Exception as ex:
+        return f"Diagnostic failed: {type(ex).__name__}: {ex}"
+
+
 async def _run_agent(
     prompt: str,
     options: ClaudeAgentOptions,
@@ -198,9 +237,27 @@ async def _run_agent(
                 return result
         else:
             raise
+    except ProcessError as e:
+        logger.exception("Agent SDK ProcessError (exit_code=%s)", e.exit_code)
+        # The SDK hardcodes "Check stderr output for details" as placeholder.
+        # Run a direct subprocess diagnostic to capture the REAL error.
+        diag = _diagnose_cli_failure(options)
+        stderr_from_callback = ""
+        if _stderr:
+            stderr_from_callback = "\nCallback stderr:\n" + "\n".join(_stderr[-10:])
+        error_msg = (
+            f"CLI exit code {e.exit_code}"
+            f"{stderr_from_callback}"
+            f"\n\nDiagnostic: {diag}"
+        )
+        logger.error("Full agent error: %s", error_msg)
+        return WorkerResult(
+            result_text=error_msg,
+            cost_usd=0, duration_ms=0, num_turns=0,
+            session_id=None, is_error=True,
+        )
     except Exception as e:
         logger.exception("Agent SDK error")
-        # Include stderr output for debugging CLI failures
         stderr_detail = ""
         if _stderr:
             stderr_detail = "\nCLI stderr:\n" + "\n".join(_stderr[-10:])
