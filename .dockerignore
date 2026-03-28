@@ -14,6 +14,9 @@ venv/
 # Exclude local settings and skills that aren't needed in container
 .claude/settings.local.json
 .claude/skills/
+data/command/agent_sessions.json
+data/command/costs.jsonl
+data/command/photos/
 plans/
 shares/
 docs/

@@ -333,12 +333,14 @@ class Orchestrator:
                 "CC agent error (%s): %s", topic_key, result.result_text[:200]
             )
             self.sessions.delete(topic_key)
+            # Show more error detail for debugging cloud issues
+            error_detail = _escape_html(result.result_text[:800])
             await self.bot.send_message(
                 chat_id=chat_id,
                 text=(
                     "\u274c Agent error — session reset. Send your message again "
                     "to start fresh.\n\n"
-                    f"<i>{_escape_html(result.result_text[:300])}</i>"
+                    f"<i>{error_detail}</i>"
                 ),
                 message_thread_id=thread_id,
                 parse_mode="HTML",

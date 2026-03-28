@@ -114,6 +114,20 @@ async def main() -> None:
     # ── Load configuration ────────────────────────────────────────────────
     boot.info("Loading configuration...")
     config = load_config()
+
+    # On cloud, clear any stale sessions baked into the Docker image.
+    # Sessions created locally (OAuth) won't work with the API key on cloud.
+    if os.getenv("DIGITALOCEAN_APP"):
+        sessions_path = Path(config.workspace_dir) / "data" / "command" / "agent_sessions.json"
+        if sessions_path.exists():
+            try:
+                import json
+                data = json.loads(sessions_path.read_text())
+                if data:
+                    boot.info("Clearing %d stale session(s) from Docker image", len(data))
+                    sessions_path.write_text("{}")
+            except Exception:
+                pass
     config.log_dir.mkdir(parents=True, exist_ok=True)
 
     boot.info(
@@ -159,25 +173,59 @@ async def main() -> None:
     cli_path = shutil.which("claude")
     if cli_path:
         try:
+            cli_env = {**os.environ, "CLAUDECODE": ""}
             result = subprocess.run(
                 [cli_path, "--version"],
                 capture_output=True, text=True, timeout=15,
-                env={**os.environ, "CLAUDECODE": ""},
+                env=cli_env,
             )
             version = result.stdout.strip() or result.stderr.strip()
             checks.append(SystemCheck("Claude CLI", True, f"{cli_path} — {version[:40]}"))
         except Exception as e:
             checks.append(SystemCheck("Claude CLI", False, f"found at {cli_path} but failed: {e}"))
+
+        # On cloud, do a quick smoke test to verify the API key works with the CLI
+        if os.getenv("DIGITALOCEAN_APP") and os.getenv("ANTHROPIC_API_KEY"):
+            try:
+                smoke = subprocess.run(
+                    [cli_path, "-p", "respond with just OK", "--max-turns", "1",
+                     "--output-format", "text", "--model", "haiku"],
+                    capture_output=True, text=True, timeout=30,
+                    env=cli_env,
+                )
+                if smoke.returncode == 0:
+                    checks.append(SystemCheck("CLI smoke test", True, "API key + CLI working"))
+                else:
+                    stderr_preview = (smoke.stderr or "no stderr")[:120]
+                    checks.append(SystemCheck(
+                        "CLI smoke test", False,
+                        f"exit code {smoke.returncode}: {stderr_preview}",
+                    ))
+            except subprocess.TimeoutExpired:
+                checks.append(SystemCheck("CLI smoke test", False, "timed out after 30s"))
+            except Exception as e:
+                checks.append(SystemCheck("CLI smoke test", False, str(e)[:80]))
     else:
         checks.append(SystemCheck("Claude CLI", False, "not found in PATH"))
 
     # Check API key availability on cloud
     if os.getenv("DIGITALOCEAN_APP"):
-        has_key = bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
-        checks.append(SystemCheck(
-            "API Key (cloud)", has_key,
-            "ANTHROPIC_API_KEY set" if has_key else "ANTHROPIC_API_KEY missing — CLI will fail",
-        ))
+        api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        has_key = bool(api_key)
+        if has_key:
+            # Validate the key format (should start with sk-ant-)
+            key_preview = f"{api_key[:10]}...{api_key[-4:]}" if len(api_key) > 14 else "***"
+            key_valid = api_key.startswith("sk-ant-")
+            checks.append(SystemCheck(
+                "API Key (cloud)", key_valid,
+                f"ANTHROPIC_API_KEY set ({key_preview})"
+                if key_valid else f"ANTHROPIC_API_KEY set but unexpected format ({key_preview})",
+            ))
+        else:
+            checks.append(SystemCheck(
+                "API Key (cloud)", False,
+                "ANTHROPIC_API_KEY missing — CLI will fail",
+            ))
 
     # Verify Telegram connection
     try:

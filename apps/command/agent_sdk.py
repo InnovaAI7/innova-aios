@@ -203,9 +203,11 @@ async def _run_agent(
         # Include stderr output for debugging CLI failures
         stderr_detail = ""
         if _stderr:
-            stderr_detail = "\nCLI stderr: " + " | ".join(_stderr[-5:])
+            stderr_detail = "\nCLI stderr:\n" + "\n".join(_stderr[-10:])
+        error_msg = f"Agent error: {type(e).__name__}: {e}{stderr_detail}"
+        logger.error("Full agent error: %s", error_msg)
         return WorkerResult(
-            result_text=f"Agent error: {e}{stderr_detail}",
+            result_text=error_msg,
             cost_usd=0, duration_ms=0, num_turns=0,
             session_id=None, is_error=True,
         )
