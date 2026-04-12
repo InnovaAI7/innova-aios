@@ -122,6 +122,11 @@ def create_options(
         logger.warning("CLI stderr: %s", line)
         stderr_lines.append(line)
 
+    # On cloud, use --bare so the CLI authenticates purely via
+    # ANTHROPIC_API_KEY (no OAuth, no keychain, no interactive login).
+    is_cloud = not is_local_mac
+    extra_args = ["--bare"] if is_cloud else []
+
     options = ClaudeAgentOptions(
         cli_path=cli_path,
         stderr=_log_stderr,
@@ -131,7 +136,7 @@ def create_options(
             "append": system_append or DEFAULT_SYSTEM_APPEND,
         },
         # On cloud, skip user settings (no ~/.claude/settings.json in container)
-        setting_sources=["project"] if not is_local_mac else ["project", "user"],
+        setting_sources=["project"] if is_cloud else ["project", "user"],
         cwd=workspace_dir,
         allowed_tools=allowed_tools or [
             "Read", "Write", "Edit", "Bash", "Glob", "Grep",
@@ -142,6 +147,7 @@ def create_options(
         max_budget_usd=max_budget_usd,
         model=model,
         env=env_clean,
+        extra_args=extra_args,
     )
     return options, stderr_lines
 
@@ -162,10 +168,13 @@ def _diagnose_cli_failure(options: ClaudeAgentOptions) -> str:
     # Remove CLAUDECODE to avoid nested session errors
     env.pop("CLAUDECODE", None)
 
+    # Use --bare on cloud so CLI authenticates via ANTHROPIC_API_KEY
+    bare_flag = ["--bare"] if os.getenv("DIGITALOCEAN_APP") else []
+
     try:
         result = subprocess.run(
             [cli_path, "-p", "say OK", "--max-turns", "1",
-             "--output-format", "text", "--model", "haiku"],
+             "--output-format", "text", "--model", "haiku"] + bare_flag,
             capture_output=True, text=True, timeout=30,
             env=env, cwd=options.cwd,
         )

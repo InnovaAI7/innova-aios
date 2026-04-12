@@ -164,7 +164,7 @@ async def main() -> None:
             try:
                 smoke = subprocess.run(
                     [cli_path, "-p", "respond with just OK", "--max-turns", "1",
-                     "--output-format", "text", "--model", "haiku"],
+                     "--output-format", "text", "--model", "haiku", "--bare"],
                     capture_output=True, text=True, timeout=30,
                     env=cli_env,
                 )
