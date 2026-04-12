@@ -101,13 +101,11 @@ def create_options(
     # If no API key, the CLI falls back to OAuth (local dev with subscription).
     # Only blank the key on macOS local dev where we want OAuth instead.
     import platform
-    has_api_key = bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
     is_local_mac = platform.system() == "Darwin" and not os.getenv("DIGITALOCEAN_APP")
-    if is_local_mac and not has_api_key:
-        env_clean["ANTHROPIC_API_KEY"] = ""
-    elif is_local_mac and has_api_key:
-        # Local dev but API key is set — respect it (user may want key-based auth)
-        pass
+    if is_local_mac:
+        # Force OAuth on local Mac — remove API key from subprocess env
+        # so CLI uses Max subscription. Never mutate os.environ itself.
+        env_clean.pop("ANTHROPIC_API_KEY", None)
     # Ensure USER is set — macOS Keychain (used for OAuth tokens)
     # requires it, and launchd doesn't provide it by default.
     if not env_clean.get("USER"):
@@ -264,10 +262,15 @@ async def _run_agent(
         )
     except Exception as e:
         logger.exception("Agent SDK error")
+        # Also run the diagnostic for generic exceptions (not just ProcessError)
+        diag = _diagnose_cli_failure(options)
         stderr_detail = ""
         if _stderr:
             stderr_detail = "\nCLI stderr:\n" + "\n".join(_stderr[-10:])
-        error_msg = f"Agent error: {type(e).__name__}: {e}{stderr_detail}"
+        error_msg = (
+            f"Agent error: {type(e).__name__}: {e}{stderr_detail}"
+            f"\n\nDiagnostic: {diag}"
+        )
         logger.error("Full agent error: %s", error_msg)
         return WorkerResult(
             result_text=error_msg,

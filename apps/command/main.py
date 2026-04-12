@@ -5,7 +5,7 @@ Simplified boot sequence:
 2. Print boot banner with system checks
 3. Clear stale Telegram polling lock
 4. Wire up orchestrator, task registry, cost tracker
-5. Register router and start polling
+5. Register router and start polling (with crash recovery)
 """
 
 import asyncio
@@ -13,9 +13,9 @@ import logging
 import os
 import shutil
 import subprocess
+import signal
 import sys
 from pathlib import Path
-from typing import NamedTuple
 
 # Remove CLAUDECODE env var so Agent SDK can spawn Claude Code subprocesses.
 # When developing inside a Claude Code session this var is set and blocks
@@ -29,89 +29,64 @@ from aiogram.enums import ParseMode
 from .bot import router, set_orchestrator
 from .config import load_config
 from .cost_tracker import CostTracker
+from .logger import (
+    setup_logging,
+    get_logger,
+    print_banner,
+    print_separator,
+    print_system_checks,
+    print_ready,
+    SystemCheck,
+)
 from .orchestrator import Orchestrator
 
 
-# ── Logging Setup ────────────────────────────────────────────────────────────
-
-class _C:
-    """ANSI color codes."""
-    RESET   = "\033[0m"
-    BOLD    = "\033[1m"
-    DIM     = "\033[2m"
-    RED     = "\033[31m"
-    GREEN   = "\033[32m"
-    YELLOW  = "\033[33m"
-    CYAN    = "\033[36m"
-    GREY    = "\033[90m"
-    BRIGHT_CYAN   = "\033[96m"
-    BRIGHT_GREEN  = "\033[92m"
+# Maximum size for stdout/stderr logs before trimming (5 MB)
+_MAX_LOG_BYTES = 5 * 1024 * 1024
 
 
-class SystemCheck(NamedTuple):
-    name: str
-    passed: bool
-    detail: str
+def _trim_launchd_logs() -> None:
+    """Trim stdout/stderr log files if they exceed the size limit.
 
+    launchd doesn't support log rotation, so we do it on startup.
+    Keeps the last ~50% of the file to preserve recent context.
+    """
+    workspace = Path(__file__).resolve().parent.parent.parent
+    for name in ("command.stdout.log", "command.stderr.log"):
+        log_path = workspace / "data" / name
+        if not log_path.exists():
+            continue
+        try:
+            size = log_path.stat().st_size
+            if size > _MAX_LOG_BYTES:
+                content = log_path.read_bytes()
+                # Keep the last half
+                half = len(content) // 2
+                # Find next newline after the midpoint for a clean cut
+                cut = content.find(b"\n", half)
+                if cut == -1:
+                    cut = half
+                log_path.write_bytes(content[cut + 1:])
+                logging.getLogger("boot").info(
+                    "Trimmed %s: %d KB -> %d KB",
+                    name, size // 1024, (size - cut) // 1024,
+                )
+        except OSError:
+            pass
 
-def _setup_logging() -> None:
-    """Configure root logger with timestamped format and suppress noisy libs."""
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter(
-        f"{_C.GREY}%(asctime)s{_C.RESET} | %(levelname)-7s | %(message)s",
-        datefmt="%H:%M:%S",
-    ))
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-    root.handlers.clear()
-    root.addHandler(handler)
-
-    # Suppress noisy third-party loggers
-    for name in ("aiogram", "aiogram.dispatcher", "aiogram.event",
-                 "httpx", "httpcore", "anthropic", "openai", "urllib3"):
-        logging.getLogger(name).setLevel(logging.WARNING)
-
-
-def _print_banner() -> None:
-    """Print the branded boot banner."""
-    banner = f"""\
-{_C.BRIGHT_CYAN}{_C.BOLD}
-   \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
-   \u2551                                              \u2551
-   \u2551       A I   C O M M A N D   B O T            \u2551
-   \u2551       Telegram + Claude Code    v1.0          \u2551
-   \u2551                                              \u2551
-   \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
-{_C.RESET}"""
-    print(banner, flush=True)
-
-
-def _print_checks(checks: list[SystemCheck]) -> None:
-    """Print system readiness checks with pass/fail indicators."""
-    log = logging.getLogger("boot")
-    for check in checks:
-        if check.passed:
-            log.info(f"{_C.GREEN}\u2713{_C.RESET} {check.name} {_C.GREY}({check.detail}){_C.RESET}")
-        else:
-            log.error(f"{_C.RED}\u2717{_C.RESET} {check.name} {_C.GREY}({check.detail}){_C.RESET}")
-
-
-def _print_separator() -> None:
-    """Print a visual separator line."""
-    print(f"   {_C.GREY}{'─' * 46}{_C.RESET}", flush=True)
-
-
-# ── Main ─────────────────────────────────────────────────────────────────────
 
 async def main() -> None:
-    # ── Boot banner ───────────────────────────────────────────────────────
-    _setup_logging()
-    _print_banner()
+    # ── Logging & banner ─────────────────────────────────────────────────
+    setup_logging()
+    print_banner()
 
-    boot = logging.getLogger("boot")
-    system = logging.getLogger("system")
+    boot = get_logger("boot")
+    system = get_logger("system")
 
-    # ── Load configuration ────────────────────────────────────────────────
+    # ── Trim old logs ────────────────────────────────────────────────────
+    _trim_launchd_logs()
+
+    # ── Load configuration ───────────────────────────────────────────────
     boot.info("Loading configuration...")
     config = load_config()
 
@@ -134,9 +109,9 @@ async def main() -> None:
         "Model: %s  |  Budget: $%.2f/msg  |  Max turns: %d",
         config.general_agent_model, config.general_agent_max_budget, config.general_agent_max_turns,
     )
-    _print_separator()
+    print_separator()
 
-    # ── System checks ─────────────────────────────────────────────────────
+    # ── System checks ────────────────────────────────────────────────────
     checks: list[SystemCheck] = []
 
     # Config loaded
@@ -147,7 +122,7 @@ async def main() -> None:
     # Log directory
     checks.append(SystemCheck("Log directory", True, str(config.log_dir)))
 
-    # ── Initialize bot ────────────────────────────────────────────────────
+    # ── Initialize bot ───────────────────────────────────────────────────
     bot = Bot(
         token=config.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
@@ -234,15 +209,15 @@ async def main() -> None:
     except Exception as e:
         checks.append(SystemCheck("Telegram", False, str(e)[:60]))
 
-    _print_checks(checks)
-    _print_separator()
+    print_system_checks(checks)
+    print_separator()
 
     # Check for failures
     failed = [c for c in checks if not c.passed]
     if failed:
         boot.warning("Some checks failed — bot will start anyway")
 
-    # ── Wire up components ────────────────────────────────────────────────
+    # ── Wire up components ───────────────────────────────────────────────
     cost_tracker = CostTracker(config.log_dir)
     orchestrator = Orchestrator(bot, config, cost_tracker)
     set_orchestrator(orchestrator, config)
@@ -252,10 +227,7 @@ async def main() -> None:
 
     @dp.startup()
     async def on_startup() -> None:
-        system.info(
-            f"{_C.BRIGHT_GREEN}{_C.BOLD}Online \u2014 polling for messages{_C.RESET}"
-        )
-        _print_separator()
+        print_ready()
         # Build startup message with check results for Telegram
         lines = ["Command Bot is online."]
         for c in checks:
@@ -273,9 +245,35 @@ async def main() -> None:
     async def on_shutdown() -> None:
         system.info("Shutting down...")
 
-    await dp.start_polling(bot)
+    # ── Start polling with crash recovery ────────────────────────────────
+    # If polling crashes (e.g. sustained DNS failure), wait and retry
+    # instead of letting the process die. launchd will restart us, but
+    # that creates log noise and loses the warm bot/dispatcher state.
+    max_retries = 10
+    retry_delay = 10  # seconds
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            await dp.start_polling(bot)
+            break  # Clean shutdown (SIGTERM/SIGINT) — exit normally
+        except (KeyboardInterrupt, SystemExit):
+            system.info("Received shutdown signal")
+            break
+        except Exception as e:
+            system.error(
+                "Polling crashed (attempt %d/%d): %s: %s",
+                attempt, max_retries, type(e).__name__, e,
+            )
+            if attempt < max_retries:
+                system.info("Restarting polling in %ds...", retry_delay)
+                await asyncio.sleep(retry_delay)
+                # Exponential backoff capped at 60s
+                retry_delay = min(retry_delay * 2, 60)
+            else:
+                system.error("Max retries reached — exiting")
+                sys.exit(1)
 
 
 if __name__ == "__main__":
-    _setup_logging()
+    setup_logging()
     asyncio.run(main())
