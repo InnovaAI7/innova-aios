@@ -103,9 +103,11 @@ def create_options(
     import platform
     is_local_mac = platform.system() == "Darwin" and not os.getenv("DIGITALOCEAN_APP")
     if is_local_mac:
-        # Force OAuth on local Mac — remove API key from subprocess env
-        # so CLI uses Max subscription. Never mutate os.environ itself.
-        env_clean.pop("ANTHROPIC_API_KEY", None)
+        # Force OAuth on local Mac — blank the API key in subprocess env
+        # so CLI uses Max subscription. Must set to "" rather than pop,
+        # because the SDK merges os.environ back in and load_dotenv may
+        # have set the key in os.environ from .env.
+        env_clean["ANTHROPIC_API_KEY"] = ""
     # Ensure USER is set — macOS Keychain (used for OAuth tokens)
     # requires it, and launchd doesn't provide it by default.
     if not env_clean.get("USER"):
