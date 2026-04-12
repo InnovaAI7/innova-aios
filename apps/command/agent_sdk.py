@@ -125,7 +125,7 @@ def create_options(
     # On cloud, use --bare so the CLI authenticates purely via
     # ANTHROPIC_API_KEY (no OAuth, no keychain, no interactive login).
     is_cloud = not is_local_mac
-    extra_args = ["--bare"] if is_cloud else []
+    extra_args = {"--bare": None} if is_cloud else {}
 
     options = ClaudeAgentOptions(
         cli_path=cli_path,
